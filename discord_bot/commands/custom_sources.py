@@ -1,6 +1,6 @@
 from discord_bot.bot import bot
 import discord
-from scraper.custom_scraper import add_custom_source
+from storage.custom_scraper import add_custom_source
 
 
 @bot.tree.command(name="add_source", description="Add a custom company career page")

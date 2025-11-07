@@ -5,7 +5,7 @@ discord-ext-pages>=0.0.1
 # Web Scraping
 requests==2.31.0
 beautifulsoup4==4.12.2
-pandas==2.1.0
+# pandas==2.1.0
 
 # Airflow
 # apache-airflow==2.8.1

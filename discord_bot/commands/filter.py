@@ -2,7 +2,7 @@ from discord_bot.bot import bot
 import discord
 from discord import app_commands
 import logging
-from scraper.scrape_manager import filter_jobs
+from storage.scrape_manager import filter_jobs
 
 logger = logging.getLogger(__name__)
 

@@ -1,33 +1,88 @@
 import asyncio
 import logging
+import io
+from typing import Optional
 
 from discord_bot.bot import bot
 import discord
 
-from scraper.scrape_manager import scrape_all
+# Use JobSky scraper when available; fall back to existing scrape_all for full-run
+from storage.scrape_manager import scrape_all
+try:
+    from jobsky import scrape_jobs
+except Exception:
+    scrape_jobs = None
+
+from discord_bot.commands.profile import view_profile
 
 logger = logging.getLogger(__name__)
 
 
-@bot.tree.command(name="scrape", description="Run all scrapers now (manual trigger)")
-async def scrape_cmd(interaction: discord.Interaction):
-    """Manually run all scrapers and persist results to `src/data/developer_jobs.csv`.
+@bot.tree.command(name="scrape", description="Run a job scrape for your profile or given parameters")
+async def scrape_cmd(
+    interaction: discord.Interaction,
+    search_term: Optional[str] = None,
+    location: Optional[str] = None,
+    hours_old: Optional[int] = None,
+    results_wanted: int = 15,
+    sites: Optional[str] = None,  # comma-separated list of site names e.g. "indeed,linkedin"
+):
+    """Run a scrape for the invoking user.
 
-    This runs the blocking `scrape_all()` call inside a thread so the bot event
-    loop isn't blocked.
+    Parameters can be provided directly. If omitted, the user's profile
+    (from `profile.view_profile`) will be used as a fallback for `search_term`
+    and `location`.
+    `sites` should be a comma-separated list (e.g. "indeed,linkedin,google").
     """
     await interaction.response.defer(thinking=True)
 
+    # If JobSky's scrape_jobs is available, use it; otherwise run the legacy full scrape_all
     try:
-        # Run the blocking scrape_all() in a thread.
-        df = await asyncio.to_thread(scrape_all)
+        # Determine parameters: prefer explicit args, otherwise profile values
+        profile = view_profile(str(interaction.user.id))
+        profile_skills = profile[0] if profile else None
+        profile_location = profile[1] if profile else None
+
+        final_search = search_term or profile_skills
+        final_location = location or profile_location
+
+        site_list = None
+        if sites:
+            site_list = [s.strip() for s in sites.split(",") if s.strip()]
+
+        if scrape_jobs:
+            # Run JobSky scrape with user parameters in a thread
+            df = await asyncio.to_thread(
+                scrape_jobs,
+                site_name=site_list,
+                search_term=final_search,
+                location=final_location,
+                hours_old=hours_old,
+                results_wanted=results_wanted,
+            )
+        else:
+            # Fallback: run existing manager which scrapes all sources and writes to file
+            df = await asyncio.to_thread(scrape_all)
+
         try:
             count = len(df) if df is not None else 0
         except Exception:
-            # df might not be a pandas DataFrame if things went wrong
             count = 0
 
-        await interaction.followup.send(f"✅ Scrape finished. {count} jobs written to src/data/developer_jobs.csv")
+        # If we have a DataFrame, attach it as CSV; otherwise just report count
+        if df is not None and hasattr(df, "to_csv"):
+            buf = io.BytesIO()
+            # to_csv requires text bytes; write to string then encode
+            csv_bytes = df.to_csv(index=False).encode("utf-8")
+            buf.write(csv_bytes)
+            buf.seek(0)
+            discord_file = discord.File(fp=buf, filename="jobs.csv")
+            await interaction.followup.send(
+                content=f"✅ Scrape finished. {count} jobs found.", file=discord_file
+            )
+        else:
+            await interaction.followup.send(f"✅ Scrape finished. {count} jobs found.")
+
     except ImportError as ie:
         logger.exception("Missing dependency while running manual scrape")
         await interaction.followup.send(

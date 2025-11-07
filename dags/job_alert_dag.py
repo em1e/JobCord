@@ -1,7 +1,7 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
-from scraper.scrape_manager import scrape_all, get_new_jobs
+from storage.scrape_manager import scrape_all, get_new_jobs
 from bot.discord_bot import TOKEN  # or use webhook
 import requests, os
 

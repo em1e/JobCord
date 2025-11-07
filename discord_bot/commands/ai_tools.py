@@ -1,7 +1,7 @@
 import openai
 from discord_bot.bot import bot
 import discord
-from scraper.scrape_manager import get_job_by_id
+from storage.scrape_manager import get_job_by_id
 import logging
 
 logger = logging.getLogger(__name__)

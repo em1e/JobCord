@@ -1,7 +1,7 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
-from scraper.scrape_manager import scrape_all, get_new_jobs
+from storage.scrape_manager import scrape_all, get_new_jobs
 from trackers.profile_manager import get_subscribed_users
 from discord_bot.bot import send_discord_message
 default_args = {
