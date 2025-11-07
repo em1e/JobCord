@@ -1,5 +1,5 @@
 import discord
-from tracker.status_manager import set_status
+from trackers.status_manager import set_status
 
 class JobButtons(discord.ui.View):
     def __init__(self, job_id, title, company):

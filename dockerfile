@@ -11,5 +11,7 @@ RUN apt-get update \
 
 USER airflow
 
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# COPY requirements.txt /tmp/requirements.txt
+
+# RUN pip install --no-cache-dir wheel numpy==2.3.4 \
+# 	&& pip install --no-cache-dir -r /tmp/requirements.txt

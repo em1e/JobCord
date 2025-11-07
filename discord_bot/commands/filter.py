@@ -1,8 +1,11 @@
 from discord_bot.bot import bot
-from discord.ext import commands
+import discord
 from discord import app_commands
+import logging
 from scraper.scrape_manager import filter_jobs
-import pandas as pd
+
+logger = logging.getLogger(__name__)
+
 
 @bot.tree.command(
     name="filter",
@@ -11,13 +14,35 @@ import pandas as pd
 @app_commands.describe(
     keyword="Keyword to search in job titles or companies."
 )
-async def filter_jobs_cmd(interaction: commands.Context, keyword: str):
+async def filter_jobs_cmd(interaction: discord.Interaction, keyword: str):
+    """Find jobs matching `keyword` and return up to 5 top results.
+
+    Improved error handling:
+    - If pandas (or other optional deps) is missing: tell the user to install pandas.
+    - If another unexpected error happens: log it and return a short error message.
+    """
     await interaction.response.defer(thinking=True)
-    
-    df = filter_jobs(keyword)
-    if df.empty:
+    try:
+        df = filter_jobs(keyword)
+    except ImportError as ie:
+        # Likely pandas or similar missing from the environment
+        logger.exception("Missing dependency when running /filter")
+        await interaction.followup.send(
+            "This command requires additional dependencies (pandas). Install them with `pip install pandas` to use `/filter`."
+        )
+        return
+    except Exception as e:
+        # Unexpected error: log full traceback and send concise message to user
+        logger.exception("Unexpected error in /filter command")
+        await interaction.followup.send(
+            f"An unexpected error occurred while searching for `{keyword}`."
+        )
+        return
+
+    if df is None or getattr(df, "empty", True):
         await interaction.followup.send(f"No results found for `{keyword}`.")
         return
+
     latest = df.head(5)
 
     response = "\n\n".join([

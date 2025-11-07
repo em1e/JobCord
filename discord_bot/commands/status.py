@@ -1,12 +1,19 @@
 from discord_bot.bot import bot
-import pandas as pd
-from scraper.scrape_manager import set_status, list_statuses
+from trackers.status_manager import set_status, list_statuses
 
 VALID_STATUSES = ["applied", "denied", "accepted", "interview"]
 
 @bot.tree.command(name="status", description="Update or list job application statuses.")
 async def status_cmd(interaction, job_id: int = None, status: str = None):
     await interaction.response.defer(thinking=True)
+    try:
+        import pandas as pd
+    except Exception:
+        await interaction.followup.send(
+            "This command requires `pandas`. Install it with `pip install pandas` to use `/status`."
+        )
+        return
+
     df = pd.read_csv("src/data/developer_jobs.csv")
 
     if status == "list" or (job_id is None and status == "list"):

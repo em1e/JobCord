@@ -1,23 +1,21 @@
 # Discord Bot
 discord.py==2.6.0
+discord-ext-pages>=0.0.1
 
 # Web Scraping
 requests==2.31.0
 beautifulsoup4==4.12.2
 pandas==2.1.0
 
-# Database
-sqlite3
-
 # Airflow
-apache-airflow==2.8.1
+# apache-airflow==2.8.1
 
 # Flask Dashboard
-Flask==2.3.3
+Flask==2.2.5
 Jinja2==3.1.2
 
 # AI tools
-openai==1.8.5
+openai==1.8.0
 
 # Development / Utils
 python-dotenv==1.0.0
