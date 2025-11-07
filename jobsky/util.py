@@ -92,6 +92,12 @@ class TLSRotating(RotatingProxySession, tls_client.Session):
         tls_client.Session.__init__(self, random_tls_extension_order=True)
 
     def execute_request(self, *args, **kwargs):
+        # Map common requests-style kwargs to tls_client expected names
+        # tls_client.Session.execute_request expects `timeout_seconds` instead of `timeout`
+        if "timeout" in kwargs and "timeout_seconds" not in kwargs:
+            # translate `timeout` (seconds float/int) to `timeout_seconds`
+            kwargs["timeout_seconds"] = kwargs.pop("timeout")
+
         if self.proxy_cycle:
             next_proxy = next(self.proxy_cycle)
             if next_proxy["http"] != "http://localhost":

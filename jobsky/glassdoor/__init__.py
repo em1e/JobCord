@@ -58,10 +58,16 @@ class Glassdoor(Scraper):
         """
         self.scraper_input = scraper_input
         self.scraper_input.results_wanted = min(900, scraper_input.results_wanted)
-        self.base_url = self.scraper_input.country.get_glassdoor_url()
+        # Some Country values do not have a Glassdoor mapping — handle that gracefully
+        try:
+            self.base_url = self.scraper_input.country.get_glassdoor_url()
+        except Exception as e:
+            log.error(f"Glassdoor not available for country {self.scraper_input.country}: {e}")
+            return JobResponse(jobs=[])
 
+        # Pass user_agent into session creation so TLS-backed sessions include it
         self.session = create_session(
-            proxies=self.proxies, ca_cert=self.ca_cert, has_retry=True
+            proxies=self.proxies, ca_cert=self.ca_cert, has_retry=True, user_agent=self.user_agent
         )
         token = self._get_csrf_token()
         headers["gd-csrf-token"] = token if token else fallback_token

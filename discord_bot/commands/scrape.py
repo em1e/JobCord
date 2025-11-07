@@ -7,7 +7,8 @@ from discord_bot.bot import bot
 import discord
 
 # Use JobSky scraper when available; fall back to existing scrape_all for full-run
-from storage.scrape_manager import scrape_all
+from storage.scrape_manager import scrape_all, append_jobs_dataframe
+from storage.scrape_manager import scrape_watchlist
 try:
     from jobsky import scrape_jobs
 except Exception:
@@ -26,6 +27,7 @@ async def scrape_cmd(
     hours_old: Optional[int] = None,
     results_wanted: int = 15,
     sites: Optional[str] = None,  # comma-separated list of site names e.g. "indeed,linkedin"
+    site: Optional[str] = None,  # alias for a single site (e.g. "watchlist")
 ):
     """Run a scrape for the invoking user.
 
@@ -46,11 +48,27 @@ async def scrape_cmd(
         final_search = search_term or profile_skills
         final_location = location or profile_location
 
-        site_list = None
+        # Accept either `sites` (comma-separated) or singular `site` as an alias.
+        site_input = None
         if sites:
-            site_list = [s.strip() for s in sites.split(",") if s.strip()]
+            site_input = sites
+        elif site:
+            site_input = site
 
-        if scrape_jobs:
+        site_list = None
+        if site_input:
+            # allow comma-separated even in the singular alias
+            site_list = [s.strip() for s in site_input.split(",") if s.strip()]
+
+        if site_list and any(s.lower() == 'watchlist' for s in site_list):
+            # Run only the watchlist-based scraping path
+            df = await asyncio.to_thread(scrape_watchlist, results_wanted_per_item=results_wanted)
+            # Append to canonical CSV
+            try:
+                await asyncio.to_thread(append_jobs_dataframe, df)
+            except Exception:
+                logger.exception("Failed to append watchlist results to developer_jobs.csv")
+        elif scrape_jobs:
             # Run JobSky scrape with user parameters in a thread
             df = await asyncio.to_thread(
                 scrape_jobs,
@@ -60,6 +78,12 @@ async def scrape_cmd(
                 hours_old=hours_old,
                 results_wanted=results_wanted,
             )
+            # Also append these results to the canonical developer_jobs.csv so
+            # the repository keeps a growing record (do this in a thread).
+            try:
+                await asyncio.to_thread(append_jobs_dataframe, df)
+            except Exception:
+                logger.exception("Failed to append jobsky results to developer_jobs.csv")
         else:
             # Fallback: run existing manager which scrapes all sources and writes to file
             df = await asyncio.to_thread(scrape_all)

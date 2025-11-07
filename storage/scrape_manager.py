@@ -95,6 +95,58 @@ def scrape_all():
 
         print(f"  - discovered total {len(all_jobs)} jobs from jobsky scrapers")
 
+        # Now include any watchlist URLs (company job pages or direct listings)
+        try:
+            from storage.watchlist import load_watchlist
+            from jobsky.util import create_session
+
+            watch_items = load_watchlist()
+            if watch_items:
+                print(f"  - processing {len(watch_items)} watchlist URLs")
+                session = create_session(user_agent=None)
+                for item in watch_items:
+                    url = item.get("url") if isinstance(item, dict) else item
+                    try:
+                        resp = session.get(url, timeout=30)
+                        if resp.status_code != 200:
+                            print(f"    - watchlist URL {url} returned {resp.status_code}")
+                            continue
+                        from bs4 import BeautifulSoup
+
+                        soup = BeautifulSoup(resp.text, "html.parser")
+                        # Heuristic: collect prominent job links from the page
+                        count = 0
+                        for a in soup.find_all("a", href=True):
+                            href = a["href"]
+                            if any(token in href.lower() for token in ["job", "careers", "vacancy", "vacancies", "position"]):
+                                link = href if href.startswith("http") else url.rstrip("/") + "/" + href.lstrip("/")
+                                title = a.get_text(strip=True) or link
+                                all_jobs.append({
+                                    "source": "watchlist",
+                                    "title": title,
+                                    "company": item.get("note", "") if isinstance(item, dict) else "",
+                                    "location": None,
+                                    "link": link,
+                                    "date": "",
+                                })
+                                count += 1
+                                if count >= 10:
+                                    break
+                        if count == 0:
+                            # If no explicit job links found, treat the page itself as a job listing
+                            all_jobs.append({
+                                "source": "watchlist",
+                                "title": item.get("note", "watchlist") if isinstance(item, dict) else url,
+                                "company": item.get("note", "") if isinstance(item, dict) else "",
+                                "location": None,
+                                "link": url,
+                                "date": "",
+                            })
+                    except Exception as e:
+                        print(f"    - error fetching watchlist URL {url}: {e}")
+        except Exception:
+            pass
+
     except Exception as e:
         print(f"Failed to discover/run jobsky scrapers: {e}")
 
@@ -176,6 +228,21 @@ def scrape_all():
     new_ids = list(range(last_id + 1, last_id + 1 + len(df)))
     df.insert(0, "id", new_ids)
 
+    # Sanitize long text fields: user requested no long job/company descriptions
+    try:
+        SANITIZE_THRESHOLD = 300  # characters; anything longer will be cleared
+        text_cols = df.select_dtypes(include=[object]).columns.tolist()
+        for col in text_cols:
+            # explicitly clear description fields
+            if col in ("description", "company_description"):
+                df[col] = ""
+                continue
+            # clear any overly long text values
+            df[col] = df[col].apply(lambda v: "" if isinstance(v, str) and len(v) > SANITIZE_THRESHOLD else v)
+    except Exception:
+        # be conservative; if sanitization fails, continue without raising
+        pass
+
     # Append to CSV so the file only grows row-by-row. If the file doesn't exist,
     # write the header; otherwise append without header.
     write_header = not os.path.exists(DATA_PATH)
@@ -219,3 +286,262 @@ def get_job_by_id(job_id: int):
         return None
     row = matches.iloc[0]
     return row.to_dict()
+
+
+def reset_job_ids(start_at: int = 1, path: str = DATA_PATH):
+    """Reassign sequential integer IDs to the CSV at `path` starting from `start_at`.
+
+    Returns the updated DataFrame, or None if the file doesn't exist or is empty.
+    """
+    if not os.path.exists(path):
+        print(f"No file at {path} to reset IDs")
+        return None
+
+    df = pd.read_csv(path)
+    if df.empty:
+        print(f"File {path} is empty; nothing to reset")
+        return df
+
+    # Ensure id column exists and is integer
+    df = df.copy()
+    df.insert(0, "id", range(start_at, start_at + len(df)))
+    df.to_csv(path, index=False)
+    print(f"Reset {len(df)} ids in {path} starting at {start_at}")
+    return df
+
+
+def append_jobs_dataframe(df: pd.DataFrame, path: str = DATA_PATH) -> int:
+    """Append a jobs DataFrame (from jobsky.scrape_jobs or similar) to the CSV at `path`.
+
+    Returns the number of rows appended.
+    """
+    if df is None or df.empty:
+        return 0
+
+    # Expected canonical header used in developer_jobs.csv
+    HEADER = [
+        "id",
+        "site",
+        "job_url",
+        "job_url_direct",
+        "title",
+        "company",
+        "location",
+        "date_posted",
+        "job_type",
+        "salary_source",
+        "interval",
+        "min_amount",
+        "max_amount",
+        "currency",
+        "is_remote",
+        "job_level",
+        "job_function",
+        "listing_type",
+        "emails",
+        "description",
+        "company_industry",
+        "company_url",
+        "company_logo",
+        "company_url_direct",
+        "company_addresses",
+        "company_num_employees",
+        "company_revenue",
+        "company_description",
+        "skills",
+        "experience_range",
+        "company_rating",
+        "company_reviews_count",
+        "vacancy_count",
+        "work_from_home_type",
+    ]
+
+    # Normalize column names from jobsky output to expected names where possible
+    col_map = {
+        "site": "site",
+        "job_url": "job_url",
+        "job_url_direct": "job_url_direct",
+        "job_url_direct": "job_url_direct",
+        "title": "title",
+        "company_name": "company",
+        "company": "company",
+        "location": "location",
+        "date_posted": "date_posted",
+        "date": "date_posted",
+    }
+
+    df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+
+    # Ensure all HEADER columns exist in df; fill missing with empty values
+    for col in HEADER:
+        if col == "id":
+            continue
+        if col not in df.columns:
+            df[col] = ""
+
+    # Reorder columns (without id) to match the CSV
+    df_out = df[[c for c in HEADER if c != "id"]].copy()
+
+    # Sanitize long text fields before appending. The user requested no long
+    # job descriptions, company descriptions, or anything similarly long.
+    try:
+        SANITIZE_THRESHOLD = 300
+        # Explicitly clear the description fields
+        if "description" in df_out.columns:
+            df_out["description"] = ""
+        if "company_description" in df_out.columns:
+            df_out["company_description"] = ""
+
+        # For any other text columns, clear values that exceed the threshold
+        text_cols = df_out.select_dtypes(include=[object]).columns.tolist()
+        for col in text_cols:
+            df_out[col] = df_out[col].apply(lambda v: "" if isinstance(v, str) and len(v) > SANITIZE_THRESHOLD else v)
+    except Exception:
+        # don't fail the append if sanitization has an issue
+        pass
+
+    # Determine last id in existing file (if any) and assign new ids sequentially
+    if os.path.exists(path):
+        try:
+            existing = pd.read_csv(path)
+            if "id" in existing.columns and not existing.empty:
+                max_id = existing["id"].max()
+                last_id = int(max_id) if pd.notna(max_id) else 0
+            else:
+                last_id = 0
+        except Exception:
+            last_id = 0
+    else:
+        last_id = 0
+
+    new_ids = list(range(last_id + 1, last_id + 1 + len(df_out)))
+    df_out.insert(0, "id", new_ids)
+
+    write_header = not os.path.exists(path)
+    df_out.to_csv(path, mode="a", index=False, header=write_header)
+
+    return len(df_out)
+
+
+def scrape_watchlist(results_wanted_per_item: int = 10) -> pd.DataFrame:
+    """Scrape only the URLs stored in the watchlist and return a DataFrame
+
+    This mirrors the watchlist behavior inside `scrape_all` but focuses
+    exclusively on watchlist entries so it can be used by commands that
+    only want watchlist results.
+    """
+    try:
+        from storage.watchlist import load_watchlist
+        from jobsky.util import create_session
+        from bs4 import BeautifulSoup
+    except Exception:
+        # If optional deps are missing, return empty DataFrame
+        return pd.DataFrame()
+
+    items = load_watchlist() or []
+    all_jobs = []
+    if not items:
+        return pd.DataFrame()
+
+    session = create_session(user_agent=None)
+    for item in items:
+        url = item.get("url") if isinstance(item, dict) else item
+        note = item.get("note", "") if isinstance(item, dict) else ""
+        try:
+            resp = session.get(url, timeout=30)
+            if resp.status_code != 200:
+                continue
+            soup = BeautifulSoup(resp.text or "", "html.parser")
+            count = 0
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if any(token in href.lower() for token in ["job", "careers", "vacancy", "vacancies", "position"]):
+                    link = href if href.startswith("http") else url.rstrip("/") + "/" + href.lstrip("/")
+                    title = a.get_text(strip=True) or link
+                    all_jobs.append({
+                        "site": "watchlist",
+                        "job_url": link,
+                        "title": title,
+                        "company": note,
+                        "location": None,
+                        "date_posted": "",
+                    })
+                    count += 1
+                    if count >= results_wanted_per_item:
+                        break
+            if count == 0:
+                all_jobs.append({
+                    "site": "watchlist",
+                    "job_url": url,
+                    "title": note or url,
+                    "company": note,
+                    "location": None,
+                    "date_posted": "",
+                })
+        except Exception:
+            continue
+
+    if not all_jobs:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(all_jobs)
+    # Ensure canonical header and id insertion like append_jobs_dataframe expects
+    # Reuse append_jobs_dataframe to normalize and append if desired; here we just
+    # return the normalized DataFrame (without writing) so caller can attach or append.
+    # Map minimal fields to the canonical header
+    col_map = {
+        "site": "site",
+        "job_url": "job_url",
+        "title": "title",
+        "company": "company",
+        "location": "location",
+        "date_posted": "date_posted",
+    }
+    df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+
+    # Fill missing canonical columns with empty strings (reuse HEADER from above)
+    HEADER = [
+        "id",
+        "site",
+        "job_url",
+        "job_url_direct",
+        "title",
+        "company",
+        "location",
+        "date_posted",
+        "job_type",
+        "salary_source",
+        "interval",
+        "min_amount",
+        "max_amount",
+        "currency",
+        "is_remote",
+        "job_level",
+        "job_function",
+        "listing_type",
+        "emails",
+        "description",
+        "company_industry",
+        "company_url",
+        "company_logo",
+        "company_url_direct",
+        "company_addresses",
+        "company_num_employees",
+        "company_revenue",
+        "company_description",
+        "skills",
+        "experience_range",
+        "company_rating",
+        "company_reviews_count",
+        "vacancy_count",
+        "work_from_home_type",
+    ]
+    for col in HEADER:
+        if col == "id":
+            continue
+        if col not in df.columns:
+            df[col] = ""
+
+    # Reorder to match expected CSV (without id)
+    df_out = df[[c for c in HEADER if c != "id"]].copy()
+    return df_out

@@ -5,13 +5,15 @@ from typing import Tuple
 
 import pandas as pd
 
-from jobsky.bayt import BaytScraper
-from jobsky.bdjobs import BDJobs
 from jobsky.glassdoor import Glassdoor
 from jobsky.google import Google
 from jobsky.indeed import Indeed
 from jobsky.linkedin import LinkedIn
 from jobsky.naukri import Naukri
+from jobsky.duunitori import Duunitori
+from jobsky.mol import Mol
+from jobsky.monster import MonsterFI
+from jobsky.jobsinfinland import JobsInFinland
 from jobsky.model import JobType, Location, JobResponse, Country
 from jobsky.model import SalarySource, ScraperInput, Site
 from jobsky.util import (
@@ -24,9 +26,11 @@ from jobsky.util import (
     desired_order,
 )
 from jobsky.ziprecruiter import ZipRecruiter
-
-
-# Update the SCRAPER_MAPPING dictionary in the scrape_jobs function
+from jobsky.academicwork import AcademicWork
+from jobsky.weworkremotely import WeWorkRemotely
+from jobsky.remotive import Remotive
+from jobsky.remoteok import RemoteOK
+from jobsky.jobindex import JobIndex
 
 def scrape_jobs(
     site_name: str | list[str] | Site | list[Site] | None = None,
@@ -38,7 +42,7 @@ def scrape_jobs(
     job_type: str | None = None,
     easy_apply: bool | None = None,
     results_wanted: int = 15,
-    country_indeed: str = "usa",
+    country_indeed: str = "finland",
     proxies: list[str] | str | None = None,
     ca_cert: str | None = None,
     description_format: str = "markdown",
@@ -61,10 +65,26 @@ def scrape_jobs(
         Site.ZIP_RECRUITER: ZipRecruiter,
         Site.GLASSDOOR: Glassdoor,
         Site.GOOGLE: Google,
-        Site.BAYT: BaytScraper,
         Site.NAUKRI: Naukri,
-        Site.BDJOBS: BDJobs,  # Add BDJobs to the scraper mapping
+        Site.DUUNITORI: Duunitori,
+        Site.MOL: Mol,
+        Site.MONSTER: MonsterFI,
+        Site.JOBSINFINLAND: JobsInFinland,
+        Site.ACADEMICWORK: AcademicWork,
+        Site.WEWORKREMOTELY: WeWorkRemotely,
+        Site.REMOTIVE: Remotive,
+        Site.REMOTEOK: RemoteOK,
+        Site.JOBINDEX: JobIndex,
     }
+    # Determine target country early so we can always skip incompatible scrapers (ZipRecruiter is not available in many EU countries)
+    try:
+        country_enum = Country.from_string(country_indeed)
+        if country_enum != Country.USA and Site.ZIP_RECRUITER in SCRAPER_MAPPING:
+            # Always remove ZipRecruiter unless the target country is USA. This enforces the user's preference to skip it for non-USA scrapes.
+            del SCRAPER_MAPPING[Site.ZIP_RECRUITER]
+    except Exception:
+        # be conservative and do not crash if Country parsing or mapping lookup fails
+        country_enum = Country.from_string(country_indeed) if isinstance(country_indeed, str) else Country.OTHER
     set_logger_level(verbose)
     job_type = get_enum_from_value(job_type) if job_type else None
 
@@ -81,7 +101,11 @@ def scrape_jobs(
             ]
         return site_types
 
-    country_enum = Country.from_string(country_indeed)
+    # country_enum was set above when pruning the mapping; ensure it's available here
+    try:
+        country_enum = Country.from_string(country_indeed)
+    except Exception:
+        country_enum = country_enum if 'country_enum' in locals() else Country.OTHER
 
     scraper_input = ScraperInput(
         site_type=get_site_type(),
@@ -100,6 +124,8 @@ def scrape_jobs(
         offset=offset,
         hours_old=hours_old,
     )
+    # Filter out any Site entries (like Site.OTHER) that don't have a mapped scraper
+    scraper_input.site_type = [s for s in scraper_input.site_type if s in SCRAPER_MAPPING]
 
     def scrape_site(site: Site) -> Tuple[str, JobResponse]:
         scraper_class = SCRAPER_MAPPING[site]
@@ -219,9 +245,3 @@ def scrape_jobs(
         ).reset_index(drop=True)
     else:
         return pd.DataFrame()
-
-
-# Add BDJobs to __all__
-__all__ = [
-    "BDJobs",
-]

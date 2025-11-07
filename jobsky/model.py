@@ -68,7 +68,7 @@ class Country(Enum):
     AUSTRALIA = ("australia", "au", "com.au")
     AUSTRIA = ("austria", "at", "at")
     BAHRAIN = ("bahrain", "bh")
-    BANGLADESH = ("bangladesh", "bd")  # Added Bangladesh
+    BANGLADESH = ("bangladesh", "bd")
     BELGIUM = ("belgium", "be", "fr:be")
     BULGARIA = ("bulgaria", "bg")
     BRAZIL = ("brazil", "br", "com.br")
@@ -239,10 +239,10 @@ class DescriptionFormat(Enum):
 class JobPost(BaseModel):
     id: str | None = None
     title: str
-    company_name: str | None
+    company_name: str | None = None
     job_url: str
     job_url_direct: str | None = None
-    location: Optional[Location]
+    location: Optional[Location] = None
 
     description: str | None = None
     company_url: str | None = None
@@ -285,14 +285,22 @@ class JobResponse(BaseModel):
 
 
 class Site(Enum):
+    OTHER = "other"
     LINKEDIN = "linkedin"
     INDEED = "indeed"
     ZIP_RECRUITER = "zip_recruiter"
     GLASSDOOR = "glassdoor"
     GOOGLE = "google"
-    BAYT = "bayt"
     NAUKRI = "naukri"
-    BDJOBS = "bdjobs"  # Add this line
+    DUUNITORI = "duunitori"
+    MOL = "mol"
+    MONSTER = "monster"
+    JOBSINFINLAND = "jobsinfinland"
+    ACADEMICWORK = "academicwork"
+    WEWORKREMOTELY = "weworkremotely"
+    REMOTIVE = "remotive"
+    REMOTEOK = "remoteok"
+    JOBINDEX = "jobindex"
 
 
 class SalarySource(Enum):
